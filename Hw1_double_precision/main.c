@@ -8,12 +8,13 @@ extern void run_time_tests(int n, int m, int seed);
 
 int main(int argc, char* argv[])
 {
-  int n = 10000;
-  int m = 10000;
+  int n = 100;
+  int m = 100;
   int seed = 123456;
   int timeflag = 0;
   int c=0;
-  while ((c=getopt(argc,argv,"tn:m:s:")) != -1)
+  int block_size = 8;
+  while ((c=getopt(argc,argv,"tb:n:m:s:")) != -1)
   {
     switch(c)
     {
@@ -28,6 +29,9 @@ int main(int argc, char* argv[])
       break;
     case 't':
       timeflag = 1;
+      break;
+    case 'b':
+      block_size = atoi(optarg); 
       break;
     case '?':
       return 1;

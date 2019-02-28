@@ -16,8 +16,8 @@ main: $(objects)
 matreduce.o: matreduce.cu matreduce.h
 	$(NVCC) -c $<
 
-test:
-	./main
+test: main
+	./main -t -n 10000 -m 10000
 
 .PHONY: clean
 clean:
