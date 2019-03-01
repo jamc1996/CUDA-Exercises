@@ -75,6 +75,51 @@ Function must be called repeatedly from CPU as otherwise synchronization doesn't
 	}
 }
 
+extern void CPU_row_reduce(float* V, float** A, int n, int m )
+/* Function to sequentially reduce the rows of A to a vector
+of the sums of the absolute values of their entries*/
+{
+	int i,j;
+	//using for(i=n; i--;) was slower here I think it confused the cache.
+	for (i = 0; i<n; i++ )
+	{
+		for (j = 0; j<m; j++)
+		{
+			V[i] += fabs(A[i][j]);
+		}
+	}
+}
+
+extern void CPU_col_reduce(float* V, float** A, int n, int m)
+/* Function to sequentially reduce the columns of A to a vector
+of the sums of the absolute values of their entries*/
+{
+	int i,j;
+	//using for(i=n; i--;) was slower here I think it confused the cache.
+	// I got a decent speed up by summing different entries of V on each iteration.
+	for ( i = 0; i<n; i++)
+	{
+		for ( j=0; j<m; j++)
+		{
+			V[j] += fabs(A[i][j]);
+		}
+	}
+}
+
+extern void CPU_reduce_vec(float* tot, float* V, int n)
+/* Function to sequentially reduce a vector to the sum of its values. */
+{
+	int i;
+	*tot = 0;
+	//using for(i=n; i--;) was slower here I think it confused the cache.	
+	for (i=0; i<n; i++)
+	{
+		*tot += V[i];
+	}
+}
+
+
+
 extern void run_basic_tests(int n, int m, int seed, int block_size)
 /* Function to check that all the functions are working. */
 {
@@ -84,12 +129,12 @@ extern void run_basic_tests(int n, int m, int seed, int block_size)
 	float** A;
 	float total_rc, total_cc, total_rg, total_cg;	
 	float error1,error2,error3,error4;	
-	
+
 	// Variables for GPU
 	float *adgpu, *argpu, *acgpu, *gpu_rsum, *gpu_csum;
 
 	// Memory allocated and values filled into CPU variables.
-	srand(seed);
+	srand48(seed);
 	aData = (float*) malloc(sizeof(float)*n*m);
 	A = (float**) malloc(sizeof(float*)*n);
 	Arowred = (float*) malloc(sizeof(float)*n);
@@ -208,7 +253,7 @@ extern void run_time_tests(int n, int m, int seed, int block_size)
 	double time_allocating, time_calculating, time_copying, total_time;
 	
 	// CPU allocation and assignment
-	srand(seed);
+	srand48(seed);
 	aData = (float*) malloc(sizeof(float)*n*m);
 	A = (float**) malloc(sizeof(float*)*n);
 	Arowred = (float*) malloc(sizeof(float)*n);
@@ -413,14 +458,14 @@ extern void write_times(int n, int m, int seed, int block_size)
 	float total;	
 
 	//Variables for use of GPU
-	float *adgpu, *argpu, *acgpu, *csum_gpu;
+	float *adgpu, *argpu, *acgpu;
 
 	// Variables for timing execution of functions	
 	clock_t begin, end, mem_time, calc_time;
 	double time_allocating, time_calculating, time_copying, total_time;
 	
 	// CPU allocation and assignment
-	srand(seed);
+	srand48(seed);
 	aData = (float*) malloc(sizeof(float)*n*m);
 	A = (float**) malloc(sizeof(float*)*n);
 	Arowred = (float*) malloc(sizeof(float)*n);
@@ -438,23 +483,59 @@ extern void write_times(int n, int m, int seed, int block_size)
 	dim3 dimBlock(block_size);
 	dim3 dimGrid( (n/dimBlock.x) + (!((n)%dimBlock.x)?0:1) );
 
+
+	// Timing of CPU row reduce
+	begin = clock();
+	CPU_row_reduce(Arowred,A,n,m);
+	end = clock();
+	total_time = (double)(end - begin)/CLOCKS_PER_SEC;
+
+	// Results printed to file
+	float tote;
+	begin = clock();
+	CPU_reduce_vec(&tote,Arowred,n);
+	end = clock();
+	total_time += (double)(end - begin)/CLOCKS_PER_SEC;
+
+
+	// Results printed to file
+	fprintf(fp, "%lf, %f, ", total_time, tote);
+
+	// Timing of CPU column reduce	
+	begin = clock();
+	CPU_col_reduce(Acolred,A,n,m);
+	end = clock();
+	total_time = (double)(end - begin)/CLOCKS_PER_SEC;
+
+	begin = clock();
+	CPU_reduce_vec(&tote,Acolred,m);
+	end = clock();
+	total_time += (double)(end - begin)/CLOCKS_PER_SEC;
+
+	// Results printed to file
+	fprintf(fp, "%lf, %f, ",total_time, tote);
+
 	// Dummy Function run to try and remove any warm up time.
 	dummy_calc<<<dimGrid,dimBlock>>>(n);
-
+	float* rtotal;
+	
 	// Timing of GPU row reduce	
 	begin = clock();
 
+	cudaMalloc ((void**) &rtotal, sizeof(float));
 	cudaMalloc ((void**) &adgpu, sizeof(float)*n*m);
 	cudaMalloc ((void**) &argpu, sizeof(float)*n);
 	cudaMemcpy(adgpu,aData,sizeof(float)*n*m, cudaMemcpyHostToDevice);
 
+
 	mem_time = clock();
 
 	GPU_row_reduce<<<dimGrid,dimBlock>>>(argpu,adgpu,n,m);
+	GPU_sequential_sum<<<dimGrid,dimBlock>>>(argpu,n,rtotal);
 
 	calc_time = clock();
 
-	cudaMemcpy(Arowred,argpu,sizeof(float)*n, cudaMemcpyDeviceToHost);
+	cudaMemcpy(&total,rtotal,sizeof(float), cudaMemcpyDeviceToHost);
 
 	end = clock();
 
@@ -465,17 +546,18 @@ extern void write_times(int n, int m, int seed, int block_size)
 	total_time = time_allocating + time_calculating + time_copying;
 
 	// Results printed to file.
-	fprintf(fp,"%lf,  %lf,  %lf, %lf\n",time_allocating,time_calculating, time_copying, total_time);
+	fprintf(fp,"%lf,  %lf,  %lf, %lf,%f ",time_allocating,time_calculating, time_copying, total_time, total);
 
 	
 	
 	// adgpu refreed and dummy function run again so conditions as similar as possible.
 	cudaFree(adgpu);
 	dummy_calc<<<dimGrid,dimBlock>>>(n);
-
+	float* ctotal;
 	// Timing of GPU Column Reduction
 	begin = clock();
 
+	cudaMalloc((void**) &ctotal, sizeof(float));
 	cudaMalloc((void**) &adgpu, sizeof(float)*n*m);
 	cudaMalloc ((void**) &acgpu, sizeof(float)*m);
 	cudaMemcpy(adgpu,aData,sizeof(float)*n*m, cudaMemcpyHostToDevice);
@@ -483,10 +565,11 @@ extern void write_times(int n, int m, int seed, int block_size)
 	mem_time = clock();
 
 	GPU_col_reduce<<<dimGrid,dimBlock>>>(acgpu,adgpu,n,m);
+	GPU_sequential_sum<<<dimGrid,dimBlock>>>(acgpu,n,ctotal);
 
-	calc_time = clock();
+	calc_time = clock();	
 
-	cudaMemcpy(Acolred,acgpu,sizeof(float)*m, cudaMemcpyDeviceToHost);
+	cudaMemcpy(&total,ctotal,sizeof(float), cudaMemcpyDeviceToHost);
 
 	end = clock();
 
@@ -497,30 +580,28 @@ extern void write_times(int n, int m, int seed, int block_size)
 	total_time = time_allocating + time_calculating + time_copying;
 
 	// Results printed to file.
-	fprintf(fp,"%lf,  %lf,  %lf, %lf\n",time_allocating,time_calculating, time_copying, total_time);
+	fprintf(fp,"%lf,  %lf,  %lf, %lf, %f \n",time_allocating,time_calculating, time_copying, total_time, total);
 
 	// Timing of GPU parallel vector reduction:
-	begin = clock();
+//	begin = clock();
 	
-	cudaMalloc ((void**) &csum_gpu, sizeof(float));
-	i = n;
-	int odd;
-	while (i>2){
+/*	i = n;
+//	int odd;
+/	while (i>2){
 		odd = i%2;		
 		i/=2;
 		GPU_parallel_sum_vec<<<dimGrid,dimBlock>>>(argpu, i,odd);
 		i += odd;
 	}
 	GPU_parallel_sum_vec<<<dimGrid,dimBlock>>>(argpu,1,0);
-	
 	cudaMemcpy(&total,argpu,sizeof(float), cudaMemcpyDeviceToHost);
-
+*/
 	end = clock();
 
-	total_time = (double)(end - begin)/CLOCKS_PER_SEC;
+//	total_time = (double)(end - begin)/CLOCKS_PER_SEC;
 
 	// Results printed to file:	
-	fprintf(fp,"\n%lf\n",total_time);
+//	fprintf(fp,"%lf\n",total_time);
 
 	fclose(fp);
 	// Memory freed
@@ -531,53 +612,7 @@ extern void write_times(int n, int m, int seed, int block_size)
 	cudaFree(argpu);
 	cudaFree(acgpu);
 	cudaFree(adgpu);
-	cudaFree(csum_gpu);
 }
-
-
-extern void CPU_row_reduce(float* V, float** A, int n, int m )
-/* Function to sequentially reduce the rows of A to a vector
-of the sums of the absolute values of their entries*/
-{
-	int i,j;
-	//using for(i=n; i--;) was slower here I think it confused the cache.
-	for (i = 0; i<n; i++ )
-	{
-		for (j = 0; j<m; j++)
-		{
-			V[i] += fabs(A[i][j]);
-		}
-	}
-}
-
-extern void CPU_col_reduce(float* V, float** A, int n, int m)
-/* Function to sequentially reduce the columns of A to a vector
-of the sums of the absolute values of their entries*/
-{
-	int i,j;
-	//using for(i=n; i--;) was slower here I think it confused the cache.
-	// I got a decent speed up by summing different entries of V on each iteration.
-	for ( i = 0; i<n; i++)
-	{
-		for ( j=0; j<m; j++)
-		{
-			V[j] += fabs(A[i][j]);
-		}
-	}
-}
-
-extern void CPU_reduce_vec(float* tot, float* V, int n)
-/* Function to sequentially reduce a vector to the sum of its values. */
-{
-	int i;
-	*tot = 0;
-	//using for(i=n; i--;) was slower here I think it confused the cache.	
-	for (i=0; i<n; i++)
-	{
-		*tot += V[i];
-	}
-}
-
 
 
 

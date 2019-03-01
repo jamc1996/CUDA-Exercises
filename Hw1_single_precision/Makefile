@@ -3,21 +3,27 @@
 # Compilers and commands
 CC = gcc
 NVCC = nvcc
+LINK = nvcc
 
+#Flags
+CFLAGS = -W -Wall
+NVCCFLAGS = -g -G --use_fast_math
 
 objects = main.o matreduce.o
 
+all: main
+
 main: $(objects)
 	$(NVCC) -o main $(objects)
-
-#main.o: main.cu
-#	$(NVCC) -c $<
 
 matreduce.o: matreduce.cu matreduce.h
 	$(NVCC) -c $<
 
 test: main
 	./main -t -n 10000 -m 10000
+
+memcheck: main
+	cuda-memcheck ./main
 
 .PHONY: clean
 clean:
