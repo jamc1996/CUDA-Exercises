@@ -446,10 +446,13 @@ extern void run_time_tests(int n, int m, int seed, int block_size)
 }
 
 extern void write_times(int n, int m, int seed, int block_size)
-/* Function to write different GPU speeds. */
+/* Function to write different GPU speeds to file. It does not do this particularly cleanly,
+but printed them in such a way that I could get a Python function  */
 {
 	FILE *fp;
 	fp = fopen("results.txt","a");
+	fprintf(fp,"The following is mostly raw data for use in graphing.\n");
+	fprintf(fp,"The columns represent:\nTime on CPU Reducing Matrix and Result by row and column, Times for various steps of GPU reduction and results.");
 	fprintf(fp,"\nResults for %d by %d matrix, with block size %d\n",n,m,block_size);
 	//Variables for use on CPU
 	int i;
@@ -581,27 +584,6 @@ extern void write_times(int n, int m, int seed, int block_size)
 
 	// Results printed to file.
 	fprintf(fp,"%lf,  %lf,  %lf, %lf, %f \n",time_allocating,time_calculating, time_copying, total_time, total);
-
-	// Timing of GPU parallel vector reduction:
-//	begin = clock();
-	
-/*	i = n;
-//	int odd;
-/	while (i>2){
-		odd = i%2;		
-		i/=2;
-		GPU_parallel_sum_vec<<<dimGrid,dimBlock>>>(argpu, i,odd);
-		i += odd;
-	}
-	GPU_parallel_sum_vec<<<dimGrid,dimBlock>>>(argpu,1,0);
-	cudaMemcpy(&total,argpu,sizeof(float), cudaMemcpyDeviceToHost);
-*/
-	end = clock();
-
-//	total_time = (double)(end - begin)/CLOCKS_PER_SEC;
-
-	// Results printed to file:	
-//	fprintf(fp,"%lf\n",total_time);
 
 	fclose(fp);
 	// Memory freed
