@@ -21,4 +21,4 @@ test: main
 
 .PHONY: clean
 clean:
-	rm -f $(objects) main
+	rm -f $(objects) main results.txt
